@@ -76,6 +76,8 @@ _REQUIRED_KEYS = (
 _TOOL_DESC_KEYS = (
     "telos_search",
     "telos_write",
+    "telos_pass",
+    "telos_reflect",
     "telos_stats",
     "http_get",
     "http_request",
@@ -281,6 +283,10 @@ class TelosClient:
         data = resp.json()
         nid = str(data.get("id", ""))
         return nid or None
+
+    def reflect(self, limit: int = 5) -> list[dict]:
+        """Retrieve this monad's own recent contributions via semantic search."""
+        return self.search(f"recent contributions by {self._monad_id}", limit)
 
     def stats_nodes(self) -> dict[str, Any]:
         attempt = 0
@@ -503,6 +509,19 @@ def _truncate(s: str, max_chars: int) -> str:
     return s[:max_chars] + "\n...(truncated)"
 
 
+def _search_quality_hint(hits: list[dict]) -> str:
+    """Return a short hint about result quality to help the LLM decide whether to write."""
+    if not hits:
+        return "No results found. This topic may be unexplored in Telos."
+    scores = [h.get("score", 0) for h in hits]
+    top = max(scores) if scores else 0
+    if top > 0.85:
+        return "High similarity results found. Check carefully for duplicates before writing."
+    if top > 0.7:
+        return "Moderately related results. There may be room to extend or challenge existing knowledge."
+    return "Weakly related results. This area may benefit from fresh exploration if you have genuine insight."
+
+
 def build_tools(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     td = cfg["tool_descriptions"]
     tools: list[dict[str, Any]] = [
@@ -533,6 +552,34 @@ def build_tools(cfg: dict[str, Any]) -> list[dict[str, Any]]:
                         "parent_ids": {"type": "array", "items": {"type": "string"}},
                     },
                     "required": ["content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "telos_pass",
+                "description": str(td["telos_pass"]),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string", "description": "Why this loop does not warrant a write."},
+                    },
+                    "required": ["reason"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "telos_reflect",
+                "description": str(td["telos_reflect"]),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of recent entries to retrieve (default 5)."},
+                    },
+                    "required": [],
                 },
             },
         },
@@ -872,7 +919,15 @@ def run_tools(
         lim = int(args.get("limit", default_lim))
         lim = max(1, min(lim, max_lim))
         hits = telos.search(str(q), lim)
-        return json.dumps(hits, ensure_ascii=False)
+        result = {
+            "results": hits,
+            "meta": {
+                "result_count": len(hits),
+                "top_score": hits[0]["score"] if hits else None,
+                "hint": _search_quality_hint(hits),
+            },
+        }
+        return json.dumps(result, ensure_ascii=False)
 
     if name == "telos_write":
         content = str(args.get("content", ""))
@@ -882,6 +937,18 @@ def run_tools(
         pids = [str(x) for x in pids]
         nid = telos.write(content, pids)
         return json.dumps({"id": nid, "ok": nid is not None}, ensure_ascii=False)
+
+    if name == "telos_pass":
+        reason = str(args.get("reason", ""))
+        log.info("telos_pass: %s", reason[:300])
+        return json.dumps({"ok": True, "action": "pass", "reason": reason[:300]}, ensure_ascii=False)
+
+    if name == "telos_reflect":
+        default_lim = int(cfg["default_search_limit"])
+        lim = int(args.get("limit", 5))
+        lim = max(1, min(lim, default_lim))
+        hits = telos.reflect(lim)
+        return json.dumps({"recent_writes": hits, "count": len(hits)}, ensure_ascii=False)
 
     if name == "telos_stats":
         st = telos.stats_nodes()
