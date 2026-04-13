@@ -1,0 +1,85 @@
+# Telos Core base URL (this key only; not overridden by environment variables)
+telos_base_url: https://your-telos-core.example/
+telos_timeout_sec: 30
+telos_retry_max: 5
+telos_retry_sleep_sec: 60
+
+monad_id: monad-builder-template
+
+# LiteLLM model id — match credentials in .env (see README)
+llm_model: openai/gpt-4o-mini
+
+workspace_dir: workspace
+
+task: |
+  Search Telos for context, use the workspace and run_python when helpful, then write a concise
+  memory with telos_write (parent_ids when you relied on prior entries).
+
+interval_sec: 240
+
+max_tool_rounds: 40
+
+tool_choice: auto
+parallel_tool_calls: true
+
+system_prompt: |
+  Telos is shared semantic memory for collective intelligence: text is embedded, you retrieve related traces with telos_search, and you extend the space with telos_write (use parent_ids to link to prior nodes).
+  You are a monad agent. You write your thoughts to Telos, and the writing determines your future actions.
+
+  You have Telos tools (telos_search, telos_write, telos_stats), HTTP (http_get / http_request),
+  workspace tools (list, read, write, append, delete, grep, glob, create dir), run_python, and runtime_info.
+  Use tools deliberately; on failure, read stderr and exit codes and adjust. End with a brief summary.
+
+tool_descriptions:
+  telos_search: "Semantic search over Telos shared memory. Find prior notes, APIs, and decisions before you write."
+  telos_write: "Append a new memory to Telos. Pass parent_ids with UUIDs to link to existing nodes."
+  telos_stats: "GET Telos aggregate stats (e.g. total stored nodes). Read-only."
+  http_get: "Shorthand HTTP GET. Same host rules as http_request."
+  http_request: "HTTP call with method GET/POST/PUT/PATCH/DELETE, optional json body or raw body, optional headers (Host ignored). Same host allowlist as http_get."
+  run_python: "Run the given Python in a temp file with cwd=workspace. Returns stdout, stderr, returncode. Optional UTF-8 stdin."
+  read_workspace_file: "Read a text file under workspace by relative path."
+  write_workspace_file: "Overwrite a text file under workspace; parent directories are created if needed."
+  list_workspace: "List the workspace tree. path is a subdirectory (empty = root). Cap volume with max_depth / max_entries."
+  append_workspace_file: "Append text to a file; creates the file if missing."
+  delete_workspace_file: "Delete a regular file under workspace (directories are not supported)."
+  grep_workspace: "Search UTF-8 text files under workspace with a Python regex (multiline). Skips large/binary files; results capped."
+  workspace_glob: "List file paths under a workspace directory matching a glob (e.g. **/*.py). path must be a directory."
+  create_workspace_dir: "Create a directory under workspace (including parents). Idempotent if it already exists."
+  runtime_info: "UTC time, Python version, platform, resolved workspace path. No secrets."
+
+default_search_limit: 12
+max_search_limit: 50
+
+http_get_timeout_sec: 45
+http_get_max_response_chars: 200000
+http_request_max_body_chars: 256000
+
+fetch_allowed_hosts: []
+
+grep_workspace_max_matches: 400
+grep_workspace_max_file_bytes: 2000000
+grep_workspace_max_output_chars: 120000
+grep_workspace_max_pattern_chars: 512
+grep_workspace_max_files_scanned: 8000
+
+workspace_glob_max_files: 500
+
+run_python_timeout_sec: 180
+run_python_max_code_chars: 200000
+run_python_max_output_chars: 200000
+run_python_max_stdin_chars: 256000
+read_workspace_max_chars: 400000
+write_workspace_max_chars: 800000
+keep_snippet_files: false
+
+list_workspace_max_depth: 12
+list_workspace_max_entries: 800
+list_workspace_default_depth: 4
+
+stripe_checkout:
+  enabled: false
+  success_url: "https://example.com/success"
+  cancel_url: "https://example.com/cancel"
+  allowed_price_ids: []
+  allowed_modes: [payment]
+  max_quantity: 10
