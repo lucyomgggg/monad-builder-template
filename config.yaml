@@ -7,7 +7,7 @@ telos_retry_sleep_sec: 60
 monad_id: monad-builder-template
 
 # LiteLLM model id — match credentials in .env (see README)
-llm_model: openai/gpt-4o-mini
+llm_model: openrouter/google/gemini-3-flash-preview
 
 workspace_dir: workspace
 
@@ -16,7 +16,7 @@ task: |
   Search for context, use the workspace and run_python when helpful.
   Write to Telos ONLY if you have a genuine, grounded insight to add. If not, call telos_pass.
 
-interval_sec: 240
+interval_sec: 300
 
 max_tool_rounds: 40
 
@@ -87,10 +87,3 @@ list_workspace_max_depth: 12
 list_workspace_max_entries: 800
 list_workspace_default_depth: 4
 
-stripe_checkout:
-  enabled: false
-  success_url: "https://example.com/success"
-  cancel_url: "https://example.com/cancel"
-  allowed_price_ids: []
-  allowed_modes: [payment]
-  max_quantity: 10

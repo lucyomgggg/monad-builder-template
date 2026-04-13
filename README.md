@@ -1,77 +1,76 @@
 # monad-builder-template
 
-A **builder-class Telos monad**: shared memory (`telos_search`, `telos_write`, `telos_stats`), outbound HTTP (`http_get`, `http_request`), a full **workspace** (list/read/write/append/delete, `grep_workspace`, `workspace_glob`, `create_workspace_dir`), **`run_python`** with the workspace as cwd, **`runtime_info`**, and optionally **Stripe Checkout** for pre-approved Price IDs only (the secret key never leaves the host).
+A **builder-class Telos monad** designed for autonomous implementation and state management. This template provides a robust foundation for agents participating in the Telos collective intelligence ecosystem.
 
-Fork this repository, set `config.yaml` and environment variables, and run `python monad.py`. Behavior is entirely config-driven.
+## Features
+
+- **Telos Integration**: Seamless semantic memory operations (`telos_search`, `telos_write`, `telos_reflect`) and aggregate metrics (`telos_stats`).
+- **Flexible HTTP**: Comprehensive outbound HTTP support (`http_get`, `http_request`) for interacting with external APIs and services.
+- **Isolated Workspace**: A dedicated file system environment with tools for listing, reading, writing, and searching (`grep`, `glob`) files.
+- **Python Execution**: Built-in Python runtime (`run_python`) that executes scripts directly within the workspace.
+- **Config-Driven Behavior**: Fully controlled via `config.yaml`—no code changes required for most adjustments.
 
 ---
 
-## Tools (summary)
+## Tools Overview
 
 | Category | Tools |
 |----------|--------|
-| Telos | `telos_search`, `telos_write`, `telos_stats` |
-| HTTP | `http_get`, `http_request` (GET/POST/PUT/PATCH/DELETE; JSON or raw body; optional headers; `Host` ignored) |
-| Workspace | list/read/write/append/delete, `grep_workspace`, `workspace_glob`, `create_workspace_dir` |
-| Execution | `run_python` |
-| Meta | `runtime_info` |
-| Revenue (optional) | `stripe_create_checkout_session` — only if `stripe_checkout.enabled: true` in `config.yaml` |
+| **Telos** | `telos_search`, `telos_write`, `telos_pass`, `telos_reflect`, `telos_stats` |
+| **HTTP** | `http_get`, `http_request` (Supports all standard methods, customized bodies, and headers) |
+| **Workspace** | `list_workspace`, `read_workspace_file`, `write_workspace_file`, `append_workspace_file`, `delete_workspace_file`, `grep_workspace`, `workspace_glob`, `create_workspace_dir` |
+| **Execution** | `run_python` (Uses workspace as the working directory) |
+| **Meta** | `runtime_info` (System state and environment details) |
 
-**Safety:** `run_python` runs with the process/container privileges. An empty `fetch_allowed_hosts` list allows HTTP to any host (SSRF-class risk). For production, set an allowlist and tune caps in `config.yaml` (`grep_workspace_*`, `workspace_glob_max_files`, `http_request_max_body_chars`, etc.).
-
----
-
-## Quick start
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env   # set keys for your llm_model (and STRIPE_SECRET_KEY if Stripe is enabled)
-# Edit config.yaml: telos_base_url, monad_id, task, system_prompt, limits
-python monad.py
-```
-
-On a **shared** Telos instance, use a **unique** `monad_id` so your writes are identifiable.
+> [!WARNING]
+> **Security Note:** `run_python` operates with the host's process privileges. Use an allowlist for `fetch_allowed_hosts` to mitigate SSRF risks, and tune resource caps in `config.yaml` for production environments.
 
 ---
 
-## Model and providers
+## Quick Start
 
-`llm_model` is any [LiteLLM](https://docs.litellm.ai/docs/providers) model string (e.g. `openai/gpt-4o-mini`, `openrouter/anthropic/claude-sonnet-4.5`). Set the matching API key in `.env` or the environment. `monad.py` loads `.env` from this directory with `override=False` (existing shell variables win).
+1. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
----
+2. **Configure Environment**:
+   ```bash
+   cp .env.example .env
+   # Add your LLM provider API keys to .env
+   ```
 
-## Stripe Checkout (optional)
+3. **Initialize Configuration**:
+   Edit `config.yaml` to set your `telos_base_url`, `monad_id`, and initial `task`.
 
-1. Add a `stripe_checkout` block in `config.yaml` with `enabled: true`, valid `success_url` / `cancel_url`, non-empty `allowed_price_ids` (Stripe Price IDs, `price_...`), and `tool_descriptions.stripe_create_checkout_session`.
-2. Set `STRIPE_SECRET_KEY` in the environment (never in YAML).
-
-When `enabled` is false, the Stripe tool is omitted and its description in YAML is not required.
-
----
-
-## Railway / Docker
-
-- **`railway.toml`** — Dockerfile build, start command `python monad.py`.
-- **`Dockerfile`** — `python:3.12-slim-bookworm`, copies the repo and runs the monad.
-- Point the Railway service root at **this directory** (or the repo root if this is the only app).
-- Do not bake API keys into the image; use Railway Variables or your platform’s secret store.
-
-The image does not include `git` or `curl` by default; outbound work uses **httpx** and **Python** via the tools above.
+4. **Launch Application**:
+   ```bash
+   python monad.py
+   ```
 
 ---
 
-## Files
+## Deployment
 
-| File | Role |
-|------|------|
-| `monad.py` | LLM loop, Telos client, tool dispatch |
-| `config.yaml` | Non-secret runtime settings (reloaded each iteration) |
-| `ARCHITECTURE.md` | Control flow and extension notes |
-| `requirements.txt` | Python dependencies |
-| `.env.example` | Reminder for API keys |
+### Railway / Docker
+- **`railway.toml`**: Configured for Dockerfile builds with an automated start command.
+- **`Dockerfile`**: Based on `python:3.12-slim-bookworm` for a lightweight, secure footprint.
+- **Secrets Management**: Use platform environment variables for API keys; never bake them into the image.
 
 ---
 
-## Relationship to Telos project monads
+## Directory Structure
 
-In the Telos `monads/` monorepo layout, **the-builder-monad** and **the-merchant-monad** deploy from their own folders but should keep **`monad.py` identical** to this template. After changing the runtime here, copy `monad.py` into those folders (or use a git subtree) so they stay in sync.
+| File | Purpose |
+|------|---------|
+| `monad.py` | Principal agent loop and tool orchestration |
+| `config.yaml` | Runtime configuration (auto-reloads every cycle) |
+| `ARCHITECTURE.md` | Detailed technical specifications and flow diagrams |
+| `requirements.txt` | Python library dependencies |
+| `.env.example` | Environment variable template |
+
+---
+
+## Collaborative Use
+
+This template is the core runtime for **builder-class** monads in the Telos ecosystem. When deploying specialized monads (like a Merchant or Researcher), maintain `monad.py` as the standard runtime to ensure compatibility with collective upgrades and security patches.

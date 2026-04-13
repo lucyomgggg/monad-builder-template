@@ -1,8 +1,7 @@
 """
 Telos "builder-class" monad runtime: Telos search/write/stats, outbound HTTP (GET or full request),
-workspace file tools, grep/glob, Python execution, optional Stripe Checkout for pre-approved Price
-IDs only (secret key never exposed to the model). Fork this template and drive behavior with
-`config.yaml` (prompts, limits, `monad_id`, optional `stripe_checkout`).
+workspace file tools, grep/glob, Python execution.
+Fork this template and drive behavior with `config.yaml` (prompts, limits, `monad_id`).
 """
 
 from __future__ import annotations
@@ -91,126 +90,7 @@ _TOOL_DESC_KEYS = (
     "workspace_glob",
     "create_workspace_dir",
     "runtime_info",
-    "stripe_create_checkout_session",
 )
-
-_STRIPE_TOOL = "stripe_create_checkout_session"
-
-
-def _stripe_checkout_enabled(cfg: dict[str, Any]) -> bool:
-    sc = cfg.get("stripe_checkout")
-    if not isinstance(sc, dict):
-        return False
-    # YAML boolean only; avoid truthy strings like "false"
-    return sc.get("enabled") is True
-
-
-def _stripe_metadata_clean(raw: Any) -> dict[str, str]:
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, str] = {}
-    mk_re = re.compile(r"^[a-zA-Z0-9_]{1,40}$")
-    for i, (k, v) in enumerate(raw.items()):
-        if i >= 10:
-            break
-        ks = str(k).strip()
-        if not mk_re.match(ks):
-            continue
-        vs = str(v)
-        if len(vs) > 500:
-            vs = vs[:500]
-        out[ks] = vs
-    return out
-
-
-def _stripe_create_checkout(cfg: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    if not _stripe_checkout_enabled(cfg):
-        return {"error": "stripe_checkout.enabled is not true or block missing"}
-    sc = cfg["stripe_checkout"]
-    assert isinstance(sc, dict)
-    sk = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-    if not sk.startswith(("sk_test_", "sk_live_")):
-        return {"error": "STRIPE_SECRET_KEY missing or not a Stripe secret key (sk_test_/sk_live_)"}
-
-    price_id = str(args.get("price_id", "")).strip()
-    allowed = [str(x).strip() for x in sc.get("allowed_price_ids", []) if str(x).strip()]
-    if price_id not in allowed:
-        return {"error": "price_id is not in stripe_checkout.allowed_price_ids"}
-
-    modes = sc.get("allowed_modes", ["payment"])
-    if not isinstance(modes, list) or not modes:
-        return {"error": "stripe_checkout.allowed_modes must be a non-empty list"}
-    modes_s = [str(m).strip() for m in modes if str(m).strip() in ("payment", "subscription", "setup")]
-    if not modes_s:
-        return {"error": "allowed_modes entries must be payment, subscription, and/or setup"}
-    mode = str(args.get("mode", modes_s[0])).strip()
-    if mode not in modes_s:
-        return {"error": f"mode must be one of {modes_s}"}
-
-    max_q = int(sc.get("max_quantity", 99))
-    max_q = max(1, min(max_q, 999))
-    try:
-        qty = int(args.get("quantity", 1))
-    except (TypeError, ValueError):
-        return {"error": "quantity must be an integer"}
-    qty = max(1, min(qty, max_q))
-
-    success_url = str(sc.get("success_url", "")).strip()
-    cancel_url = str(sc.get("cancel_url", "")).strip()
-    if not success_url.startswith(("http://", "https://")) or not cancel_url.startswith(("http://", "https://")):
-        return {"error": "success_url and cancel_url must be http(s) URLs in config"}
-
-    cref_raw = args.get("client_reference_id")
-    cref: str | None = None
-    if cref_raw is not None:
-        cref = str(cref_raw).strip()[:200] or None
-
-    meta = _stripe_metadata_clean(args.get("metadata"))
-
-    form: dict[str, str] = {
-        "mode": mode,
-        "success_url": success_url,
-        "cancel_url": cancel_url,
-        "line_items[0][price]": price_id,
-        "line_items[0][quantity]": str(qty),
-    }
-    if cref:
-        form["client_reference_id"] = cref
-    for mk, mv in meta.items():
-        form[f"metadata[{mk}]"] = mv
-
-    timeout = min(60.0, float(cfg["http_get_timeout_sec"]))
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            r = client.post(
-                "https://api.stripe.com/v1/checkout/sessions",
-                data=form,
-                headers={"Authorization": f"Bearer {sk}"},
-            )
-    except httpx.RequestError as e:
-        return {"error": f"Stripe request failed: {e}"}
-
-    try:
-        body = r.json()
-    except ValueError:
-        return {"error": "Stripe returned non-JSON", "status_code": r.status_code}
-
-    if not isinstance(body, dict):
-        return {"error": "unexpected Stripe response", "status_code": r.status_code}
-
-    if not (200 <= r.status_code < 300):
-        err = body.get("error")
-        if isinstance(err, dict):
-            msg = err.get("message", str(err))
-        else:
-            msg = str(err or body)
-        return {"error": "Stripe API error", "message": msg, "status_code": r.status_code}
-
-    url = body.get("url")
-    sid = body.get("id")
-    if not url or not isinstance(url, str):
-        return {"error": "Stripe response missing checkout url", "status_code": r.status_code}
-    return {"ok": True, "checkout_url": url, "session_id": sid if isinstance(sid, str) else None}
 
 
 class TelosClient:
@@ -346,50 +226,8 @@ def validate_config(cfg: dict[str, Any]) -> None:
         log.error("tool_descriptions must be a mapping")
         sys.exit(1)
     for k in _TOOL_DESC_KEYS:
-        if k == _STRIPE_TOOL and not _stripe_checkout_enabled(cfg):
-            continue
         if k not in td or not str(td[k]).strip():
             log.error("tool_descriptions.%s is empty", k)
-            sys.exit(1)
-
-    if _stripe_checkout_enabled(cfg):
-        sc = cfg["stripe_checkout"]
-        assert isinstance(sc, dict)
-        if not str(sc.get("success_url", "")).strip().startswith(("http://", "https://")):
-            log.error("stripe_checkout.success_url must be an http(s) URL")
-            sys.exit(1)
-        if not str(sc.get("cancel_url", "")).strip().startswith(("http://", "https://")):
-            log.error("stripe_checkout.cancel_url must be an http(s) URL")
-            sys.exit(1)
-        raw_prices = sc.get("allowed_price_ids")
-        if not isinstance(raw_prices, list) or not [str(x).strip() for x in raw_prices if str(x).strip()]:
-            log.error("stripe_checkout.allowed_price_ids must be a non-empty list of Stripe Price IDs")
-            sys.exit(1)
-        for pid in raw_prices:
-            ps = str(pid).strip()
-            if ps and not ps.startswith("price_"):
-                log.error("stripe_checkout allowed price id must start with price_: %s", ps[:20])
-                sys.exit(1)
-        raw_modes = sc.get("allowed_modes", ["payment"])
-        if not isinstance(raw_modes, list) or not raw_modes:
-            log.error("stripe_checkout.allowed_modes must be a non-empty list")
-            sys.exit(1)
-        for m in raw_modes:
-            if str(m).strip() not in ("payment", "subscription", "setup"):
-                log.error("stripe_checkout.allowed_modes must use only payment, subscription, setup")
-                sys.exit(1)
-        mq = sc.get("max_quantity", 99)
-        try:
-            mq_i = int(mq)
-        except (TypeError, ValueError):
-            log.error("stripe_checkout.max_quantity must be an integer")
-            sys.exit(1)
-        if mq_i < 1 or mq_i > 999:
-            log.error("stripe_checkout.max_quantity must be between 1 and 999")
-            sys.exit(1)
-        sk = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-        if not sk.startswith(("sk_test_", "sk_live_")):
-            log.error("STRIPE_SECRET_KEY must be set when stripe_checkout.enabled (sk_test_ or sk_live_)")
             sys.exit(1)
 
     if "fetch_allowed_hosts" not in cfg or not isinstance(cfg["fetch_allowed_hosts"], list):
@@ -785,42 +623,6 @@ def build_tools(cfg: dict[str, Any]) -> list[dict[str, Any]]:
             },
         },
     ]
-    if _stripe_checkout_enabled(cfg):
-        tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": _STRIPE_TOOL,
-                    "description": str(td[_STRIPE_TOOL]),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "price_id": {
-                                "type": "string",
-                                "description": "Stripe Price ID; must be one of stripe_checkout.allowed_price_ids in config.",
-                            },
-                            "quantity": {
-                                "type": "integer",
-                                "description": "Line item quantity (capped by stripe_checkout.max_quantity).",
-                            },
-                            "mode": {
-                                "type": "string",
-                                "description": "Checkout mode: payment, subscription, or setup (must be allowed in config).",
-                            },
-                            "client_reference_id": {
-                                "type": "string",
-                                "description": "Optional idempotency / correlation id (max 200 chars).",
-                            },
-                            "metadata": {
-                                "type": "object",
-                                "description": "Optional Stripe metadata (<=10 keys, [a-zA-Z0-9_]+, values <=500 chars).",
-                            },
-                        },
-                        "required": ["price_id"],
-                    },
-                },
-            }
-        )
     return tools
 
 
@@ -953,10 +755,6 @@ def run_tools(
     if name == "telos_stats":
         st = telos.stats_nodes()
         return json.dumps(st, ensure_ascii=False)
-
-    if name == _STRIPE_TOOL:
-        out = _stripe_create_checkout(cfg, args)
-        return json.dumps(out, ensure_ascii=False)
 
     if name == "http_get":
         url = str(args.get("url", ""))

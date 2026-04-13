@@ -1,54 +1,65 @@
-# monad-builder-template — Architecture
+# monad-builder-template — Technical Architecture
 
-This document describes how the builder-class monad is structured so you can navigate `monad.py` and `config.yaml` confidently.
-
----
-
-## 1. Purpose
-
-You want a long-running agent that:
-
-- Reads and writes **Telos** (semantic search + append, plus optional stats).
-- Calls **HTTP** APIs (GET or arbitrary methods with body/headers).
-- Uses a local **workspace** for drafts, scripts, and grep/glob exploration.
-- Runs **Python** in that workspace (`run_python`).
-- Optionally creates **Stripe Checkout** sessions for fixed, config-approved Price IDs only.
-
-Secrets (LLM keys, `STRIPE_SECRET_KEY`) stay in the **environment** or `.env`. Everything else is in **`config.yaml`**, reloaded each iteration.
+This document outlines the design and control flow of the builder-class monad, providing the necessary context for customization and extension.
 
 ---
 
-## 2. Control flow (high level)
+## 1. Design Philosophy
 
-1. **`main()`** — Loads config, runs **`run_once()`**, sleeps **`interval_sec`**, repeats. Reloads YAML every cycle.
-2. **`run_once()`** — Validates config, opens **`TelosClient`**, seeds chat with `system_prompt` + `task`, runs **`agent_turn()`** (LLM + tools up to **`max_tool_rounds`**), closes the client.
-3. **`agent_turn()`** — LiteLLM **`completion`** with OpenAI-style tools; dispatches tool calls to **`run_tools()`**.
+The builder-class monad is designed to be an **extensible, config-first autonomous agent**. It prioritizes safety through resource caps and host allowlists while providing a powerful suite of tools for semantic memory, external communication, and local code execution.
 
-Stripe: **`build_tools()`** only adds `stripe_create_checkout_session` when **`stripe_checkout.enabled`** is true. **`validate_config()`** enforces URLs, price allowlist, and env key when enabled.
-
----
-
-## 3. Config validation
-
-**`_REQUIRED_KEYS`** lists scalar and block keys that must exist (workspace limits, grep caps, HTTP limits, etc.). **`tool_descriptions`** must contain a non-empty string for every tool in **`_TOOL_DESC_KEYS`**, except **`stripe_create_checkout_session`** when Stripe is disabled.
+- **Stateless Runtime**: Logic is defined in `monad.py`, while personality and operational targets are defined in `config.yaml`.
+- **Security by Design**: Secrets are strictly environment-managed; tool outputs are truncated to prevent context overflow; file system access is scoped to a dedicated workspace.
+- **Collective Intelligence**: Native primitives for Telos search/write/reflect enable stigmergic cooperation within a shared agent network.
 
 ---
 
-## 4. Telos mapping
+## 2. Control Flow
 
-The client uses **`telos_base_url`** and **`monad_id`** (for tagging / headers as implemented in code). Search and write map to Telos Core HTTP routes defined in `monad.py` (`TelosClient`).
+The agent operates in a continuous loop with the following execution hierarchy:
+
+1.  **Orchestrator (`main`)**:
+    - Initializes the session and enters a perpetual loop.
+    - Reloads `config.yaml` at the start of every iteration to allow for live tuning.
+    - Executes the `run_once` logic and sleeps for the configured `interval_sec`.
+
+2.  **Execution Round (`run_once`)**:
+    - Validates the current configuration against required schema and limits.
+    - Initializes the `TelosClient` for shared memory access.
+    - Prepares the conversation history with the `system_prompt` and the current `task`.
+    - Triggers the `agent_turn` for LLM interaction.
+
+3.  **Interaction Loop (`agent_turn`)**:
+    - Interacts with the configured LLM using provider-agnostic tools (via LiteLLM).
+    - Dispatches tool calls to `run_tools` for secure execution.
+    - Continues until the LLM provides a final response or `max_tool_rounds` is reached.
 
 ---
 
-## 5. HTTP allowlist
+## 3. Tool Ecosystem
 
-**`fetch_allowed_hosts`** — empty list means any host (useful for dev); non-empty restricts `http_get` / `http_request` to those hosts (after normalization in code).
+Tools are dynamically built and dispatched based on the `config.yaml` definitions:
+
+- **Telos Primitives**: Directly mapped to Telos Core API routes for semantic operations.
+- **HTTP Engine**: A sanitized wrapper around `httpx` with support for follow-redirects, timeout management, and host allowlisting.
+- **Workspace Tools**: Safe file system operations restricted to the relative `workspace_dir`. Path traversal is strictly prevented (`_safe_workspace_path`).
+- **Python Runtime**: Executes code snippets in the workspace via `subprocess`. Resource usage is controlled via timeouts and output truncation.
 
 ---
 
-## 6. Extending
+## 4. Configuration & Extension
 
-- Add tools in **`build_tools()`** and **`run_tools()`**, and document them in **`tool_descriptions`** in YAML.
-- Prefer caps in **`config.yaml`** over hard-coded limits so forks can tune behavior without editing Python.
+### Live Tuning
+Most operational parameters (search limits, HTTP timeouts, grep caps, tool descriptions) can be adjusted in `config.yaml` without restarting the process.
 
-For a minimal Telos-only monad without workspace or `run_python`, see **`monad-template`** in the same monorepo pattern.
+### Adding New Tools
+To extend the monad's capabilities:
+1.  Define the tool's JSON schema in `build_tools()`.
+2.  Implement the logic in `run_tools()`.
+3.  Add a descriptive guide for the LLM in `config.yaml > tool_descriptions`.
+
+---
+
+## 5. Deployment Context
+
+The template includes a `Dockerfile` and `railway.toml` suited for high-availability environments. It is recommended to run the monad in a containerized environment where the workspace is ephemeral or backed by persistent volume storage depending on the use case.
