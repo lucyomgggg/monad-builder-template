@@ -12,9 +12,10 @@ llm_model: openrouter/google/gemini-3-flash-preview
 workspace_dir: workspace
 
 task: |
-  Explore Telos and contribute through implementation and verification.
-  Search for context, use the workspace and run_python when helpful.
-  Write to Telos ONLY if you have a genuine, grounded insight to add. If not, call telos_pass.
+  Environment facts:
+  - This template has a writable local workspace at ./workspace.
+  - No benchmark instance, repository checkout, or patch target is preloaded by default.
+  - Telos records can be scoped later with kind / scope_kind / scope_id when those facts exist.
 
 interval_sec: 300
 
@@ -24,42 +25,37 @@ tool_choice: auto
 parallel_tool_calls: true
 
 system_prompt: |
-  Telos is shared semantic memory for collective intelligence. Text is embedded in vector space; you retrieve related traces with telos_search, and you extend the space with telos_write (use parent_ids to link to prior nodes).
-
-  You are a monad — an autonomous agent in a collective. Your value is measured not by how much you write, but by the quality of signal you add to the shared space. What you write determines the future shape of collective knowledge.
-
-  Core principles:
-  - SEARCH FIRST: Always begin by understanding what already exists. Multiple searches with different queries give you a richer picture.
-  - REFLECT: Use telos_reflect to see your own recent contributions and avoid repeating yourself.
-  - WRITE ONLY WHEN YOU ADD VALUE: If your insight is already well-covered, duplicates an existing entry, or lacks grounding — do NOT write. Call telos_pass with your reason instead.
-  - LINK PRECISELY: When you write, use parent_ids to connect to the specific entries you built upon. Unlinked writes are noise.
-  - QUALITY OVER QUANTITY: One well-grounded, well-linked insight is worth more than ten shallow observations.
-
-  You are a builder who returns value to the collective through implementation and verification.
-  Tools: telos_search / telos_write / telos_pass / telos_reflect / telos_stats; http_get or http_request; workspace tools; run_python; runtime_info.
-  Use tools deliberately; on failure, read stderr and exit codes and adjust. End with a brief summary.
+  Telos and runtime environment facts:
+  - telos_search returns semantically related records from Telos Core.
+  - telos_write stores a record with content, optional parent_ids, optional kind, optional scope_kind, optional scope_id, and optional metadata.
+  - telos_reflect returns recent records associated with this monad_id through the same search API.
+  - telos_stats returns aggregate node counts from Telos Core.
+  - http_get and http_request access hosts allowed by fetch_allowed_hosts.
+  - Workspace tools operate only under ./workspace.
+  - run_python executes Python with cwd=./workspace and returns stdout, stderr, and returncode.
+  - Search result size is capped by config and by Telos Core.
 
 tool_descriptions:
-  telos_search: "Semantic search over Telos shared memory. Find prior notes, APIs, and decisions before you write. Check the meta.hint in the response for quality guidance."
-  telos_write: "Append a new memory to Telos. Pass parent_ids with UUIDs to link to existing nodes. Only write when you have genuine insight to add."
-  telos_pass: "Explicitly skip writing this loop. Call when search reveals your potential contribution is already covered, redundant, or insufficiently grounded. A pass is a valid and valuable decision."
-  telos_reflect: "Retrieve your own recent contributions to Telos. Use to avoid repeating yourself and to build on your prior work."
-  telos_stats: "GET Telos aggregate stats (e.g. total stored nodes). Read-only."
-  http_get: "Shorthand HTTP GET. Same host rules as http_request."
-  http_request: "HTTP call with method GET/POST/PUT/PATCH/DELETE, optional json body or raw body, optional headers (Host ignored). Same host allowlist as http_get."
-  run_python: "Run the given Python in a temp file with cwd=workspace. Returns stdout, stderr, returncode. Optional UTF-8 stdin."
-  read_workspace_file: "Read a text file under workspace by relative path."
-  write_workspace_file: "Overwrite a text file under workspace; parent directories are created if needed."
-  list_workspace: "List the workspace tree. path is a subdirectory (empty = root). Cap volume with max_depth / max_entries."
-  append_workspace_file: "Append text to a file; creates the file if missing."
-  delete_workspace_file: "Delete a regular file under workspace (directories are not supported)."
-  grep_workspace: "Search UTF-8 text files under workspace with a Python regex (multiline). Skips large/binary files; results capped."
-  workspace_glob: "List file paths under a workspace directory matching a glob (e.g. **/*.py). path must be a directory."
-  create_workspace_dir: "Create a directory under workspace (including parents). Idempotent if it already exists."
-  runtime_info: "UTC time, Python version, platform, resolved workspace path. No secrets."
+  telos_search: "Returns semantically related records from Telos shared memory. Optional exact filters: kind, scope_kind, scope_id."
+  telos_write: "Stores a record in Telos shared memory. parent_ids creates explicit links to prior record ids."
+  telos_pass: "Returns a local no-write result."
+  telos_reflect: "Returns recent records associated with this monad_id."
+  telos_stats: "Returns aggregate node counts from Telos Core."
+  http_get: "Fetches a public URL permitted by fetch_allowed_hosts."
+  http_request: "Performs an HTTP request to a host permitted by fetch_allowed_hosts."
+  run_python: "Executes Python with cwd=./workspace and returns stdout, stderr, and returncode."
+  read_workspace_file: "Reads a text file under ./workspace by relative path."
+  write_workspace_file: "Writes a text file under ./workspace by relative path."
+  list_workspace: "Lists files and directories under ./workspace."
+  append_workspace_file: "Appends text to a file under ./workspace."
+  delete_workspace_file: "Deletes a regular file under ./workspace."
+  grep_workspace: "Searches UTF-8 text files under ./workspace with a regex."
+  workspace_glob: "Lists files under ./workspace that match a glob pattern."
+  create_workspace_dir: "Creates a directory under ./workspace."
+  runtime_info: "Returns UTC time, Python version, platform, and resolved workspace path."
 
 default_search_limit: 12
-max_search_limit: 50
+max_search_limit: 20
 
 http_get_timeout_sec: 45
 http_get_max_response_chars: 200000
@@ -86,4 +82,3 @@ keep_snippet_files: false
 list_workspace_max_depth: 12
 list_workspace_max_entries: 800
 list_workspace_default_depth: 4
-
